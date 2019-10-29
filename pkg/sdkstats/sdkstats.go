@@ -25,26 +25,25 @@ func GetStats(client *github.Client, q string) ([]RepoMetadata, error) {
 	var repoList []RepoMetadata
 	var projectType string
 	var sdkVersion int
-
-	//Search function return CodeResults for the q queery, and also Basic repository data.
+	//Search function return CodeResults for the search string, including Basic repository data.
 	searchOp, err := Search(client, q)
-
 	if err != nil {
+		fmt.Println(err)
 		return nil, err
 	}
 
 	if strings.Contains(q, "helm") {
 		projectType = "helm"
-	}
-	if strings.Contains(q, "ansible") {
+	} else if strings.Contains(q, "ansible") {
 		projectType = "ansible"
-	}
-	if strings.Contains(q, "go.mod") {
+	} else if strings.Contains(q, "go.mod") {
 		projectType = "go.mod"
-	}
-	if strings.Contains(q, "Gopkg.toml") {
+	} else if strings.Contains(q, "Gopkg.toml") {
 		projectType = "Gopkg.toml"
+	} else {
+		projectType = ""
 	}
+
 	for j := 0; j < len(searchOp); j++ {
 		for i := 0; i < len(searchOp[j].CodeResults); i++ {
 			owner := searchOp[j].CodeResults[i].GetRepository().GetOwner().GetLogin()
@@ -52,21 +51,31 @@ func GetStats(client *github.Client, q string) ([]RepoMetadata, error) {
 			fullName := searchOp[j].CodeResults[i].GetRepository().GetFullName()
 
 			//getVersion returns SDK version by doing Fragment search
-			if projectType == "Gopkg.toml" {
+			if projectType == "Gopkg.toml" || projectType == "" {
 				sdkVersion = 0
 			} else {
-				sdkVersion = getversion(searchOp[j].CodeResults[i], projectType)
+				sdkVersion, err = strconv.Atoi(getversion(searchOp[j].CodeResults[i], projectType))
+				if err != nil {
+					fmt.Println(err)
+					return nil, err
+				}
 			}
 
 			//GetRepoDetails returns Repository specififc details
-			repoMap := GetRepoDetails(client, owner, name)
-
+			repoMap, err := GetRepoDetails(client, owner, name)
+			if err != nil {
+				fmt.Println(err)
+				return nil, err
+			}
+			if projectType == "" {
+				projectType = repoMap["Language"]
+			}
 			TotalCommits, err := strconv.Atoi(repoMap["TotalCommits"])
 			Stars, err := strconv.Atoi(repoMap["Stars"])
 			if err != nil {
+				fmt.Println(err)
 				return nil, err
 			}
-
 			repoDetails := &RepoMetadata{
 				FullName:     fullName,
 				ProjectType:  projectType,
@@ -77,10 +86,8 @@ func GetStats(client *github.Client, q string) ([]RepoMetadata, error) {
 				TotalCommits: TotalCommits,
 			}
 			repoList = append(repoList, *repoDetails)
-
 		}
 	}
-
 	return repoList, nil
 }
 
@@ -95,6 +102,7 @@ func Search(client *github.Client, q string) ([]*github.CodeSearchResult, error)
 			PerPage: 100,
 		},
 	}
+	//Below Logic enables to collate Search results from all pages returned from API call.
 	for {
 		op, resp, err := client.Search.Code(ctx, q, opts)
 		if err != nil {
@@ -110,8 +118,8 @@ func Search(client *github.Client, q string) ([]*github.CodeSearchResult, error)
 
 }
 
-//GetRepoDetails Returns map[string][string] with Stars,CreatedAt,PushedAt, and TotalCommits details for a given onwer, and repo
-func GetRepoDetails(client *github.Client, owner string, name string) map[string]string {
+//GetRepoDetails Returns map[string][string] with Stars,CreatedAt,PushedAt, and TotalCommits details for a given owner, and repo
+func GetRepoDetails(client *github.Client, owner string, name string) (map[string]string, error) {
 
 	repoMap := map[string]string{}
 
@@ -120,6 +128,7 @@ func GetRepoDetails(client *github.Client, owner string, name string) map[string
 	repos, _, err := client.Repositories.Get(ctx, owner, name)
 	if err != nil {
 		fmt.Println(err)
+		return nil, err
 	}
 	commits, _, err := client.Repositories.ListContributorsStats(ctx, owner, name)
 	var total int
@@ -130,33 +139,52 @@ func GetRepoDetails(client *github.Client, owner string, name string) map[string
 	repoMap["CreatedAt"] = repos.GetCreatedAt().String()
 	repoMap["PushedAt"] = repos.GetPushedAt().String()
 	repoMap["TotalCommits"] = strconv.Itoa(total)
-	return repoMap
+	repoMap["Language"] = repos.GetLanguage()
+	return repoMap, nil
 
 }
 
-func getversion(codeResults github.CodeResult, projectType string) int {
+//getVersion takes each Code result from a search output, and searches for Fragments comtaining VERSION, and returns the same.
+//The Fragments Text Macthes used are specific to Operator-SDK Version Pattern.
+func getversion(codeResults github.CodeResult, projectType string) string {
 
-	var searchQ string
-	var SDKversion int
+	var searchQ, SDKversion, searchLatest string
+	SDKLatest := "11"
 
 	if projectType == "helm" {
 		searchQ = "quay.io/operator-framework/helm-operator:v0."
+		searchLatest = "quay.io/operator-framework/helm-operator:latest"
 	}
 	if projectType == "ansible" {
 		searchQ = "quay.io/operator-framework/ansible-operator:v0."
+		searchLatest = "quay.io/operator-framework/ansible-operator:latest"
+
 	}
 	if projectType == "go.mod" {
 		searchQ = "github.com/operator-framework/operator-sdk v0."
 	}
 
-loop:
-	for j := 1; j <= 11; j++ {
-		for _, r := range codeResults.TextMatches {
-			if strings.Contains(r.GetFragment(), searchQ+strconv.Itoa(j)+".") {
-				SDKversion = j
-				break loop
+	for _, r := range codeResults.TextMatches {
+		if strings.Contains(r.GetFragment(), searchQ) {
+			posFirst := strings.Index(r.GetFragment(), searchQ)
+			if posFirst == -1 {
+				SDKversion = "N/A"
 			}
+			posFirstAdjusted := posFirst + len(searchQ)
+			runes := []rune(r.GetFragment())
+			c := posFirstAdjusted + 2
+			if c == -1 {
+				SDKversion = "N/A"
+			}
+			fmt.Println("HERE", string(runes[posFirstAdjusted:c]))
+			SDKversion = strings.Trim(string(runes[posFirstAdjusted:c]), ".")
+			fmt.Println("THERE", SDKversion)
+		} else if (projectType == "helm" || projectType == "ansible") && strings.Contains(r.GetFragment(), searchLatest) {
+			SDKversion = SDKLatest
 		}
+	}
+	if SDKversion == "" {
+		SDKversion = "0"
 	}
 	return SDKversion
 }

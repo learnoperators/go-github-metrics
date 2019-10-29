@@ -19,6 +19,9 @@ func main() {
 	flag.StringVar(&token, "token", "", "GitHub API token")
 	flag.Parse()
 	args := flag.Args()
+	if len(args) == 0 {
+		log.Fatal("GITHUB API TOKEN MUST BE ENTERED \n 'go run main.go YOURTOKEN'")
+	}
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
 		&oauth2.Token{AccessToken: args[0]},
@@ -33,10 +36,15 @@ func main() {
 	queries = append(queries, "filename:go.mod github.com/operator-framework/operator-sdk")
 	queries = append(queries, "filename:Gopkg.toml github.com/operator-framework/operator-sdk")
 
+	if len(queries) == 0 {
+		log.Fatal("ENTER ATLEAST ONE QUERY TO SEARCH")
+	}
+	//Call GetStats function for wah Query String from 'queries'.
+	//These Strings are specific to Operator-SDK patterns.
 	for _, r := range queries {
 		stats, err := sdkstats.GetStats(client, r)
 		if len(stats) == 0 {
-			log.Fatal("GITHUB API is down at time, Please try after few minutes")
+			log.Fatal("GITHUB API is down at this time, Please try after few minutes")
 		} else {
 			fileName := stats[0].ProjectType + ".json"
 			if err != nil {
