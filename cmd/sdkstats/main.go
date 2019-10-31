@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"os"
 	"strconv"
 	"strings"
 
@@ -55,16 +54,21 @@ func main() {
 	//GetStats function for Query String from 'queries', These Strings are specific to Operator-SDK patterns.
 	for _, r := range queries {
 		stats, err := sdkstats.GetStats(client, r)
-		if err != nil {
-			fmt.Printf("failed to get stats for query %q: %w", r, err)
-			os.Exit(1)
+		if _, ok := err.(*github.AcceptedError); ok {
+			log.Println("Job is scheduled on GitHub side")
+		} else if _, ok := err.(*github.RateLimitError); ok {
+			log.Println("Rate Limit has reached.")
+		} else if err != nil {
+			fmt.Println("Failed to get Stats for Query", r, err)
 		}
+		//Write results into JSON , named with ProjectType.
 		fileName := r.ProjectType + ".json"
 		fmt.Println("Total count: ", len(stats))
 		file, _ := json.MarshalIndent(stats, "", " ")
 		_ = ioutil.WriteFile(fileName, file, 0644)
 		fmt.Println("Results are written in ", fileName)
 	}
+
 }
 
 //Parse the given Code result to search Text Matches for Version number.
@@ -72,8 +76,7 @@ func (p projectVersionParser) ParseVersion(codeResults github.CodeResult, projec
 	var searchQ, sdkVersion, searchLatest string
 	sdkLatest := "11"
 	var posFirstAdjusted, c int
-
-	//Text match strings for Helm/Ansible are always from the First Docker file, Hence fixing the Version Indices.
+	//Text match strings for Helm/Ansible are always from the First line of Docker file, Hence fixing the Version Indices.
 	if projectType == "helm" {
 		searchQ = "quay.io/operator-framework/helm-operator:v0."
 		searchLatest = "quay.io/operator-framework/helm-operator:latest"

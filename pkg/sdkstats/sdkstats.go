@@ -2,6 +2,7 @@ package sdkstats
 
 import (
 	"context"
+	"strings"
 
 	"github.com/google/go-github/github"
 )
@@ -19,14 +20,14 @@ type RepoMetadata struct {
 	TotalCommits int
 }
 
-//RepoMetadataQuery ...
+//RepoMetadataQuery struct to store Search queries, and Project Type
 type RepoMetadataQuery struct {
 	ProjectType   string
 	Queries       []string
 	VersionParser VersionParser
 }
 
-//VersionParser ...
+//VersionParser Interface implements ParseVersion, to Parse Version number from a given Text Match result.
 type VersionParser interface {
 	ParseVersion(codeResults github.CodeResult, projectType string) (string, error)
 }
@@ -35,16 +36,25 @@ type VersionParser interface {
 func GetStats(client *github.Client, rq RepoMetadataQuery) ([]RepoMetadata, error) {
 	var repoList []RepoMetadata
 	var sdkVersion string
+	var skipVersion int
+
 	for _, q := range rq.Queries {
 		searchOp, err := Search(client, q)
 		if err != nil {
 			return nil, err
 		}
+		if strings.Contains(q, "Gopkg.toml") {
+			skipVersion = 1
+		}
 		for j := 0; j < len(searchOp); j++ {
 			for i := 0; i < len(searchOp[j].CodeResults); i++ {
-				sdkVersion, err = rq.VersionParser.ParseVersion(searchOp[j].CodeResults[i], rq.ProjectType)
-				if err != nil {
-					return nil, err
+				if skipVersion == 1 {
+					sdkVersion = "N/A"
+				} else {
+					sdkVersion, err = rq.VersionParser.ParseVersion(searchOp[j].CodeResults[i], rq.ProjectType)
+					if err != nil {
+						return nil, err
+					}
 				}
 				repoDetails := &RepoMetadata{
 					URL:         searchOp[j].CodeResults[i].GetRepository().GetURL(),
@@ -96,6 +106,9 @@ func GetRepoDetails(client *github.Client, repoDetails *RepoMetadata) (*RepoMeta
 		return nil, err
 	}
 	commits, _, err := client.Repositories.ListContributorsStats(ctx, repoDetails.Owner, repoDetails.Name)
+	if err != nil {
+		return nil, err
+	}
 	var totalCommits int
 	for _, r := range commits {
 		totalCommits = totalCommits + r.GetTotal()
