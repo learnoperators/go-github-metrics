@@ -32,7 +32,7 @@ func main() {
 	client := github.NewClient(tc)
 
 	queries := []sdkstats.RepoMetadataQuery{
-		/*sdkstats.RepoMetadataQuery{
+		sdkstats.RepoMetadataQuery{
 			ProjectType:   "ansible",
 			Queries:       []string{"filename:Dockerfile quay.io/operator-framework/ansible-operator"},
 			VersionParser: &projectVersionParser{},
@@ -41,7 +41,7 @@ func main() {
 			ProjectType:   "helm",
 			Queries:       []string{"filename:Dockerfile quay.io/operator-framework/helm-operator"},
 			VersionParser: &projectVersionParser{},
-		},*/
+		},
 		sdkstats.RepoMetadataQuery{
 			ProjectType: "go",
 			Queries: []string{
