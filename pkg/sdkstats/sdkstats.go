@@ -2,8 +2,6 @@ package sdkstats
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"github.com/google/go-github/github"
 )
@@ -39,20 +37,14 @@ func GetStats(client *github.Client, rq RepoMetadataQuery) ([]RepoMetadata, erro
 	var sdkVersion string
 	for _, q := range rq.Queries {
 		searchOp, err := Search(client, q)
-		fmt.Println("HERE ", len(searchOp))
 		if err != nil {
 			return nil, err
 		}
-		if strings.Contains(q, "Gopkg.toml") {
-			sdkVersion = "N/A"
-		}
 		for j := 0; j < len(searchOp); j++ {
 			for i := 0; i < len(searchOp[j].CodeResults); i++ {
-				if sdkVersion == "" {
-					sdkVersion, err = rq.VersionParser.ParseVersion(searchOp[j].CodeResults[i], rq.ProjectType)
-					if err != nil {
-						return nil, err
-					}
+				sdkVersion, err = rq.VersionParser.ParseVersion(searchOp[j].CodeResults[i], rq.ProjectType)
+				if err != nil {
+					return nil, err
 				}
 				repoDetails := &RepoMetadata{
 					URL:         searchOp[j].CodeResults[i].GetRepository().GetURL(),
@@ -62,6 +54,9 @@ func GetStats(client *github.Client, rq RepoMetadataQuery) ([]RepoMetadata, erro
 					SDKVersion:  sdkVersion,
 				}
 				repoDetails, err = GetRepoDetails(client, repoDetails)
+				if err != nil {
+					return nil, err
+				}
 				repoList = append(repoList, *repoDetails)
 			}
 		}

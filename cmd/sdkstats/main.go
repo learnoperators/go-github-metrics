@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/go-github-metrics-1/pkg/sdkstats"
-
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
 )
@@ -24,7 +23,7 @@ func main() {
 	flag.StringVar(&token, "token", "", "GitHub API token")
 	flag.Parse()
 	if len(token) == 0 {
-		log.Fatal("GITHUB API TOKEN MUST BE ENTERED \n Usage: './main. --token=YOURTOKEN'")
+		log.Fatal("GITHUB API TOKEN MUST BE ENTERED \n Usage: './main --token=YOURTOKEN'")
 	}
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(
@@ -53,8 +52,7 @@ func main() {
 			VersionParser: &projectVersionParser{},
 		},
 	}
-	//Call GetStats function for wah Query String from 'queries'.
-	//These Strings are specific to Operator-SDK patterns.
+	//GetStats function for Query String from 'queries', These Strings are specific to Operator-SDK patterns.
 	for _, r := range queries {
 		stats, err := sdkstats.GetStats(client, r)
 		if err != nil {
@@ -69,41 +67,56 @@ func main() {
 	}
 }
 
+//Parse the given Code result to search Text Matches for Version number.
 func (p projectVersionParser) ParseVersion(codeResults github.CodeResult, projectType string) (string, error) {
-	// parse the version, assuming a helm result. if a version isn't found, return an error
 	var searchQ, sdkVersion, searchLatest string
 	sdkLatest := "11"
+	var posFirstAdjusted, c int
 
+	//Text match strings for Helm/Ansible are always from the First Docker file, Hence fixing the Version Indices.
 	if projectType == "helm" {
 		searchQ = "quay.io/operator-framework/helm-operator:v0."
 		searchLatest = "quay.io/operator-framework/helm-operator:latest"
-	}
-	if projectType == "ansible" {
+		posFirstAdjusted = 49
+		c = 51
+	} else if projectType == "ansible" {
 		searchQ = "quay.io/operator-framework/ansible-operator:v0."
-		searchLatest = "quay.io/operator-framework/ansible-operator:latest"
+		searchLatest = "quay.io/operator-framework/ansible-operator:master"
+		posFirstAdjusted = 52
+		c = 54
 	}
-	if projectType == "go.mod" {
+	if projectType != "go" {
+		for _, r := range codeResults.TextMatches {
+			if strings.Contains(r.GetFragment(), searchQ) {
+				runes := []rune(r.GetFragment())
+				sdkVersion = strings.Trim(string(runes[posFirstAdjusted:c]), ".")
+				if _, err := strconv.Atoi(sdkVersion); err != nil {
+					sdkVersion = "N/A"
+				}
+			} else if strings.Contains(r.GetFragment(), searchLatest) {
+				sdkVersion = sdkLatest
+			}
+		}
+	}
+	if projectType == "go" {
 		searchQ = "github.com/operator-framework/operator-sdk v0."
-	}
-	for _, r := range codeResults.TextMatches {
-		if strings.Contains(r.GetFragment(), searchQ) {
-			posFirst := strings.Index(r.GetFragment(), searchQ)
-			if posFirst == -1 {
-				sdkVersion = "N/A"
+		for _, r := range codeResults.TextMatches {
+			if strings.Contains(r.GetFragment(), searchQ) {
+				posFirst := strings.Index(r.GetFragment(), searchQ)
+				if posFirst == -1 {
+					sdkVersion = "N/A"
+				}
+				posFirstAdjusted := posFirst + len(searchQ)
+				runes := []rune(r.GetFragment())
+				c := posFirstAdjusted + 2
+				if c == -1 {
+					sdkVersion = "N/A"
+				}
+				sdkVersion = strings.Trim(string(runes[posFirstAdjusted:c]), ".")
+				if _, err := strconv.Atoi(sdkVersion); err != nil {
+					sdkVersion = "N/A"
+				}
 			}
-			posFirstAdjusted := posFirst + len(searchQ)
-			runes := []rune(r.GetFragment())
-			c := posFirstAdjusted + 2
-			if c == -1 {
-				sdkVersion = "N/A"
-			}
-			sdkVersion = strings.Trim(string(runes[posFirstAdjusted:c]), ".")
-			if _, err := strconv.Atoi(sdkVersion); err != nil {
-				sdkVersion = "N/A"
-			}
-
-		} else if (projectType == "helm" || projectType == "ansible") && strings.Contains(r.GetFragment(), searchLatest) {
-			sdkVersion = sdkLatest
 		}
 	}
 	return sdkVersion, nil
