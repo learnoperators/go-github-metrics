@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"strconv"
 	"strings"
 
 	"github.com/go-github-metrics-1/pkg/sdkstats"
@@ -15,7 +14,15 @@ import (
 	"golang.org/x/oauth2"
 )
 
-type projectVersionParser struct{}
+type helmVersionParser struct{}
+type baseVersionParser struct {
+	searchQ      string
+	searchLatest string
+}
+type gomodVersionParser struct {
+	searchQ string
+}
+type unknownVersionParser struct{}
 
 func main() {
 	var token string
@@ -29,98 +36,112 @@ func main() {
 		&oauth2.Token{AccessToken: token},
 	)
 	tc := oauth2.NewClient(ctx, ts)
-	client := github.NewClient(tc)
+	//client := github.NewClient(tc)
 
 	queries := []sdkstats.RepoMetadataQuery{
 		sdkstats.RepoMetadataQuery{
-			ProjectType:   "ansible",
-			Queries:       []string{"filename:Dockerfile quay.io/operator-framework/ansible-operator"},
-			VersionParser: &projectVersionParser{},
+			ProjectType: "ansible",
+			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/ansible-operator"},
+			VersionParser: &baseVersionParser{
+				searchQ:      "quay.io/operator-framework/ansible-operator:v",
+				searchLatest: "quay.io/operator-framework/ansible-operator:master",
+			},
 		},
 		sdkstats.RepoMetadataQuery{
-			ProjectType:   "helm",
-			Queries:       []string{"filename:Dockerfile quay.io/operator-framework/helm-operator"},
-			VersionParser: &projectVersionParser{},
+			ProjectType: "helm",
+			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/helm-operator"},
+			VersionParser: &baseVersionParser{
+				searchQ:      "quay.io/operator-framework/helm-operator:v",
+				searchLatest: "quay.io/operator-framework/helm-operator:latest",
+			},
 		},
 		sdkstats.RepoMetadataQuery{
-			ProjectType: "go",
+			ProjectType: "go.mod",
 			Queries: []string{
 				"filename:go.mod github.com/operator-framework/operator-sdk",
-				"filename:Gopkg.toml github.com/operator-framework/operator-sdk",
 			},
-			VersionParser: &projectVersionParser{},
+			VersionParser: &gomodVersionParser{
+				searchQ: "replace github.com/operator-framework/operator-sdk => github.com/operator-framework/operator-sdk v",
+			},
+		},
+		sdkstats.RepoMetadataQuery{
+			ProjectType:   "gopkg.toml",
+			Queries:       []string{"filename:Gopkg.toml github.com/operator-framework/operator-sdk"},
+			VersionParser: &unknownVersionParser{},
 		},
 	}
-	//GetStats function for Query String from 'queries', These Strings are specific to Operator-SDK patterns.
-	for _, r := range queries {
-		stats, err := sdkstats.GetStats(client, r)
-		if _, ok := err.(*github.AcceptedError); ok {
-			log.Println("Job is scheduled on GitHub side")
-		} else if _, ok := err.(*github.RateLimitError); ok {
-			log.Println("Rate Limit has reached.")
-		} else if err != nil {
-			fmt.Println("Failed to get Stats for Query", r, err)
-		}
-		//Write results into JSON , named with ProjectType.
-		fileName := r.ProjectType + ".json"
-		fmt.Println("Total count: ", len(stats))
-		file, _ := json.MarshalIndent(stats, "", " ")
-		_ = ioutil.WriteFile(fileName, file, 0644)
-		fmt.Println("Results are written in ", fileName)
-	}
+	// GetStats function for Query String from 'queries', These Strings are specific to Operator-SDK patterns.
+	collectStats := [][]sdkstats.RepoMetadata{}
 
+	for _, r := range queries {
+		stats, err := sdkstats.GetStats(ctx, tc, r)
+		if err != nil {
+			fmt.Printf("Failed to get stats for query  %q %v\n", r, err)
+		}
+		collectStats = append(collectStats, stats)
+	}
+	fileName := "Search_Results.json"
+	file, _ := json.MarshalIndent(collectStats, "", " ")
+	_ = ioutil.WriteFile(fileName, file, 0644)
+	fmt.Println("Results are written in Search_Results.json")
 }
 
-//Parse the given Code result to search Text Matches for Version number.
-func (p projectVersionParser) ParseVersion(codeResults github.CodeResult, projectType string) (string, error) {
-	var searchQ, sdkVersion, searchLatest string
-	sdkLatest := "11"
-	var posFirstAdjusted, c int
-	//Text match strings for Helm/Ansible are always from the First line of Docker file, Hence fixing the Version Indices.
-	if projectType == "helm" {
-		searchQ = "quay.io/operator-framework/helm-operator:v0."
-		searchLatest = "quay.io/operator-framework/helm-operator:latest"
-		posFirstAdjusted = 49
-		c = 51
-	} else if projectType == "ansible" {
-		searchQ = "quay.io/operator-framework/ansible-operator:v0."
-		searchLatest = "quay.io/operator-framework/ansible-operator:master"
-		posFirstAdjusted = 52
-		c = 54
-	}
-	if projectType != "go" {
-		for _, r := range codeResults.TextMatches {
-			if strings.Contains(r.GetFragment(), searchQ) {
-				runes := []rune(r.GetFragment())
-				sdkVersion = strings.Trim(string(runes[posFirstAdjusted:c]), ".")
-				if _, err := strconv.Atoi(sdkVersion); err != nil {
-					sdkVersion = "N/A"
+// Parse the given Code result to search Text Matches for Version number.
+func (p baseVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
+	var version string
+	var s, v []string
+
+	for _, r := range codeResults.TextMatches {
+		if strings.Contains(r.GetFragment(), p.searchQ) {
+			value := r.GetFragment()
+			s = strings.Split(value, "\n")
+		stLoop:
+			for _, st := range s {
+				if strings.Contains(st, p.searchQ) {
+					v = strings.Split(st, ":")
+					if len(v) == 0 {
+						version = "N/A"
+					} else {
+						version = v[1]
+					}
+					break stLoop
 				}
-			} else if strings.Contains(r.GetFragment(), searchLatest) {
-				sdkVersion = sdkLatest
+			}
+		} else if strings.Contains(r.GetFragment(), p.searchLatest) {
+			version = "v0.11.0"
+		}
+	}
+	return version, nil
+}
+
+// Parse the given Code result to search Text Matches for Version number.
+func (p gomodVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
+	var version string
+	var s, v []string
+
+	for _, r := range codeResults.TextMatches {
+		if strings.Contains(r.GetFragment(), p.searchQ) {
+			value := r.GetFragment()
+			s = strings.Split(value, "\n")
+		stLoop:
+			for _, st := range s {
+				if strings.Contains(st, p.searchQ) {
+					v = strings.Split(st, " v")
+					if len(v) == 0 {
+						version = "N/A"
+					} else {
+						version = v[1]
+					}
+					break stLoop
+				}
 			}
 		}
 	}
-	if projectType == "go" {
-		searchQ = "github.com/operator-framework/operator-sdk v0."
-		for _, r := range codeResults.TextMatches {
-			if strings.Contains(r.GetFragment(), searchQ) {
-				posFirst := strings.Index(r.GetFragment(), searchQ)
-				if posFirst == -1 {
-					sdkVersion = "N/A"
-				}
-				posFirstAdjusted := posFirst + len(searchQ)
-				runes := []rune(r.GetFragment())
-				c := posFirstAdjusted + 2
-				if c == -1 {
-					sdkVersion = "N/A"
-				}
-				sdkVersion = strings.Trim(string(runes[posFirstAdjusted:c]), ".")
-				if _, err := strconv.Atoi(sdkVersion); err != nil {
-					sdkVersion = "N/A"
-				}
-			}
-		}
-	}
-	return sdkVersion, nil
+	return version, nil
+}
+
+// Parse the given Code result to search Text Matches for Version number.
+func (p unknownVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
+	version := "N/A"
+	return version, nil
 }

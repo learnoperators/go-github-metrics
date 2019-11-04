@@ -2,70 +2,53 @@ package sdkstats
 
 import (
 	"context"
-	"strings"
+	"net/http"
 
 	"github.com/google/go-github/github"
 )
 
-//RepoMetadata structure for storing Repository details
+// RepoMetadata struct is for storing individual epository details.
 type RepoMetadata struct {
 	URL          string
 	Name         string
 	Owner        string
 	ProjectType  string
 	Stars        int
-	SDKVersion   string
+	Version      string
 	CreatedAt    string
 	PushedAt     string
 	TotalCommits int
 }
 
-//RepoMetadataQuery struct to store Search queries, and Project Type
+// RepoMetadataQuery struct provides search queries, projecttype, and VersionParser declaration
 type RepoMetadataQuery struct {
 	ProjectType   string
 	Queries       []string
 	VersionParser VersionParser
 }
 
-//VersionParser Interface implements ParseVersion, to Parse Version number from a given Text Match result.
+// VersionParser Interface implements ParseVersion(), to parse version number from a given Text Match result.
 type VersionParser interface {
-	ParseVersion(codeResults github.CodeResult, projectType string) (string, error)
+	ParseVersion(codeResults github.CodeResult) (string, error)
 }
 
-//GetStats returns []RepoMetaData populated with Code results from Github Search Code API, for a given search string
-func GetStats(client *github.Client, rq RepoMetadataQuery) ([]RepoMetadata, error) {
-	var repoList []RepoMetadata
-	var sdkVersion string
-	var skipVersion int
+// GetStats returns List of Repositories satisfyng the Search criteria,
+// populated with Stars, TotalCommits, Initial and Last Commit details.
+// Also included are basic details of repository such as URL, Owner, and name.
 
+func GetStats(ctx context.Context, tc *http.Client, rq RepoMetadataQuery) ([]RepoMetadata, error) {
+	var repoList []RepoMetadata
+	var repoDetails *RepoMetadata
 	for _, q := range rq.Queries {
-		searchOp, err := Search(client, q)
+		searchOp, err := search(ctx, tc, q)
 		if err != nil {
 			return nil, err
 		}
-		if strings.Contains(q, "Gopkg.toml") {
-			skipVersion = 1
-		}
 		for j := 0; j < len(searchOp); j++ {
 			for i := 0; i < len(searchOp[j].CodeResults); i++ {
-				if skipVersion == 1 {
-					sdkVersion = "N/A"
-				} else {
-					sdkVersion, err = rq.VersionParser.ParseVersion(searchOp[j].CodeResults[i], rq.ProjectType)
-					if err != nil {
-						return nil, err
-					}
-				}
-				repoDetails := &RepoMetadata{
-					URL:         searchOp[j].CodeResults[i].GetRepository().GetURL(),
-					Name:        searchOp[j].CodeResults[i].GetRepository().GetName(),
-					Owner:       searchOp[j].CodeResults[i].GetRepository().GetOwner().GetLogin(),
-					ProjectType: rq.ProjectType,
-					SDKVersion:  sdkVersion,
-				}
-				repoDetails, err = GetRepoDetails(client, repoDetails)
+				repoDetails, err = getRepoDetails(ctx, tc, searchOp[j].CodeResults[i], rq)
 				if err != nil {
-					return nil, err
+					return repoList, err
 				}
 				repoList = append(repoList, *repoDetails)
 			}
@@ -74,10 +57,11 @@ func GetStats(client *github.Client, rq RepoMetadataQuery) ([]RepoMetadata, erro
 	return repoList, nil
 }
 
-//Search returns Github API results for Code Search, for a given Query string
-func Search(client *github.Client, q string) ([]*github.CodeSearchResult, error) {
+// search returns Github API results for Code Search, for a given Query string
+func search(ctx context.Context, tc *http.Client, q string) ([]*github.CodeSearchResult, error) {
 	var searchop []*github.CodeSearchResult
-	ctx := context.Background()
+	client := github.NewClient(tc)
+
 	opts := &github.SearchOptions{TextMatch: true,
 		ListOptions: github.ListOptions{
 			PerPage: 100,
@@ -98,24 +82,41 @@ func Search(client *github.Client, q string) ([]*github.CodeSearchResult, error)
 	return searchop, nil
 }
 
-//GetRepoDetails Returns []RepoMetaData with Stars,CreatedAt,PushedAt, and TotalCommits details for a given owner, and repo
-func GetRepoDetails(client *github.Client, repoDetails *RepoMetadata) (*RepoMetadata, error) {
-	ctx := context.Background()
-	repos, _, err := client.Repositories.Get(ctx, repoDetails.Owner, repoDetails.Name)
-	if err != nil {
-		return nil, err
-	}
-	commits, _, err := client.Repositories.ListContributorsStats(ctx, repoDetails.Owner, repoDetails.Name)
-	if err != nil {
-		return nil, err
-	}
+// getRepoDetails Returns []RepoMetaData with Stars,CreatedAt,PushedAt, and TotalCommits details for a given owner, and repo.
+func getRepoDetails(ctx context.Context, tc *http.Client, codeResults github.CodeResult, rq RepoMetadataQuery) (*RepoMetadata, error) {
 	var totalCommits int
+	client := github.NewClient(tc)
+
+	repoOwner := codeResults.GetRepository().GetOwner().GetLogin()
+	repoName := codeResults.GetRepository().GetName()
+
+	version, err := rq.VersionParser.ParseVersion(codeResults)
+	if err != nil {
+		return nil, err
+	}
+
+	repo, _, err := client.Repositories.Get(ctx, repoOwner, repoName)
+	if err != nil {
+		return nil, err
+	}
+	commits, _, err := client.Repositories.ListContributorsStats(ctx, repoOwner, repoName)
+	if err != nil {
+		return nil, err
+	}
 	for _, r := range commits {
 		totalCommits = totalCommits + r.GetTotal()
 	}
-	repoDetails.Stars = repos.GetStargazersCount()
-	repoDetails.CreatedAt = repos.GetCreatedAt().String()
-	repoDetails.PushedAt = repos.GetPushedAt().String()
-	repoDetails.TotalCommits = totalCommits
+
+	repoDetails := &RepoMetadata{
+		URL:          codeResults.GetRepository().GetURL(),
+		Name:         repoName,
+		Owner:        codeResults.GetRepository().GetOwner().GetLogin(),
+		ProjectType:  rq.ProjectType,
+		Version:      version,
+		Stars:        repo.GetStargazersCount(),
+		CreatedAt:    repo.GetCreatedAt().String(),
+		PushedAt:     repo.GetPushedAt().String(),
+		TotalCommits: totalCommits,
+	}
 	return repoDetails, nil
 }
