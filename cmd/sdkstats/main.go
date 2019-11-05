@@ -98,7 +98,7 @@ func (p baseVersionParser) ParseVersion(codeResults github.CodeResult) (string, 
 		stLoop:
 			for _, st := range s {
 				if strings.Contains(st, p.searchQ) {
-					v = strings.Split(st, ":")
+					v = strings.Split(st, ":v")
 					if len(v) == 0 {
 						version = "N/A"
 					} else {

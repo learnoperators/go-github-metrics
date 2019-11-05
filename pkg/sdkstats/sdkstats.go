@@ -47,8 +47,10 @@ func GetStats(ctx context.Context, tc *http.Client, rq RepoMetadataQuery) ([]Rep
 		for j := 0; j < len(searchOp); j++ {
 			for i := 0; i < len(searchOp[j].CodeResults); i++ {
 				repoDetails, err = getRepoDetails(ctx, tc, searchOp[j].CodeResults[i], rq)
-				if err != nil {
-					return repoList, err
+				if _, ok := err.(*github.AcceptedError); ok {
+					continue
+				} else if err != nil {
+					return nil, err
 				}
 				repoList = append(repoList, *repoDetails)
 			}
@@ -92,7 +94,7 @@ func getRepoDetails(ctx context.Context, tc *http.Client, codeResults github.Cod
 
 	version, err := rq.VersionParser.ParseVersion(codeResults)
 	if err != nil {
-		return nil, err
+		version = "N/A"
 	}
 
 	repo, _, err := client.Repositories.Get(ctx, repoOwner, repoName)
@@ -101,7 +103,7 @@ func getRepoDetails(ctx context.Context, tc *http.Client, codeResults github.Cod
 	}
 	commits, _, err := client.Repositories.ListContributorsStats(ctx, repoOwner, repoName)
 	if err != nil {
-		return nil, err
+		totalCommits = -1
 	}
 	for _, r := range commits {
 		totalCommits = totalCommits + r.GetTotal()
@@ -110,7 +112,7 @@ func getRepoDetails(ctx context.Context, tc *http.Client, codeResults github.Cod
 	repoDetails := &RepoMetadata{
 		URL:          codeResults.GetRepository().GetURL(),
 		Name:         repoName,
-		Owner:        codeResults.GetRepository().GetOwner().GetLogin(),
+		Owner:        repoOwner,
 		ProjectType:  rq.ProjectType,
 		Version:      version,
 		Stars:        repo.GetStargazersCount(),
