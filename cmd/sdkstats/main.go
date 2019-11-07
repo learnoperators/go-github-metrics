@@ -9,7 +9,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/go-github-metrics-1/pkg/sdkstats"
+	"github.com/go-github-metrics/pkg/sdkstats"
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
 )
@@ -39,20 +39,20 @@ func main() {
 	//client := github.NewClient(tc)
 
 	queries := []sdkstats.RepoMetadataQuery{
+		/*sdkstats.RepoMetadataQuery{
+			ProjectType: "helm",
+			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/helm-operator"},
+			VersionParser: &baseVersionParser{
+				searchQ:      "quay.io/operator-framework/helm-operator:v",
+				searchLatest: "quay.io/operator-framework/helm-operator:latest",
+			},
+		},
 		sdkstats.RepoMetadataQuery{
 			ProjectType: "ansible",
 			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/ansible-operator"},
 			VersionParser: &baseVersionParser{
 				searchQ:      "quay.io/operator-framework/ansible-operator:v",
 				searchLatest: "quay.io/operator-framework/ansible-operator:master",
-			},
-		},
-		sdkstats.RepoMetadataQuery{
-			ProjectType: "helm",
-			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/helm-operator"},
-			VersionParser: &baseVersionParser{
-				searchQ:      "quay.io/operator-framework/helm-operator:v",
-				searchLatest: "quay.io/operator-framework/helm-operator:latest",
 			},
 		},
 		sdkstats.RepoMetadataQuery{
@@ -63,7 +63,7 @@ func main() {
 			VersionParser: &gomodVersionParser{
 				searchQ: "replace github.com/operator-framework/operator-sdk => github.com/operator-framework/operator-sdk v",
 			},
-		},
+		},*/
 		sdkstats.RepoMetadataQuery{
 			ProjectType:   "gopkg.toml",
 			Queries:       []string{"filename:Gopkg.toml github.com/operator-framework/operator-sdk"},
@@ -75,8 +75,9 @@ func main() {
 
 	for _, r := range queries {
 		stats, err := sdkstats.GetStats(ctx, tc, r)
+		fmt.Println("Total count for ", r.ProjectType, ":", len(stats))
 		if err != nil {
-			fmt.Printf("Failed to get stats for query  %q %v\n", r, err)
+			fmt.Printf("Failed to get stats for queries %v: %v\n", r.Queries, err)
 		}
 		collectStats = append(collectStats, stats)
 	}
@@ -142,6 +143,5 @@ func (p gomodVersionParser) ParseVersion(codeResults github.CodeResult) (string,
 
 // Parse the given Code result to search Text Matches for Version number.
 func (p unknownVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
-	version := "N/A"
-	return version, nil
+	return "unknown", nil
 }

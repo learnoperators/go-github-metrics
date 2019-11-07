@@ -38,15 +38,14 @@ type VersionParser interface {
 
 func GetStats(ctx context.Context, tc *http.Client, rq RepoMetadataQuery) ([]RepoMetadata, error) {
 	var repoList []RepoMetadata
-	var repoDetails *RepoMetadata
 	for _, q := range rq.Queries {
 		searchOp, err := search(ctx, tc, q)
 		if err != nil {
 			return nil, err
 		}
-		for j := 0; j < len(searchOp); j++ {
-			for i := 0; i < len(searchOp[j].CodeResults); i++ {
-				repoDetails, err = getRepoDetails(ctx, tc, searchOp[j].CodeResults[i], rq)
+		for _, j := range searchOp {
+			for _, i := range j.CodeResults {
+				repoDetails, err := getRepoDetails(ctx, tc, i, rq)
 				if _, ok := err.(*github.AcceptedError); ok {
 					continue
 				} else if err != nil {
@@ -86,7 +85,6 @@ func search(ctx context.Context, tc *http.Client, q string) ([]*github.CodeSearc
 
 // getRepoDetails Returns []RepoMetaData with Stars,CreatedAt,PushedAt, and TotalCommits details for a given owner, and repo.
 func getRepoDetails(ctx context.Context, tc *http.Client, codeResults github.CodeResult, rq RepoMetadataQuery) (*RepoMetadata, error) {
-	var totalCommits int
 	client := github.NewClient(tc)
 
 	repoOwner := codeResults.GetRepository().GetOwner().GetLogin()
@@ -101,6 +99,8 @@ func getRepoDetails(ctx context.Context, tc *http.Client, codeResults github.Cod
 	if err != nil {
 		return nil, err
 	}
+
+	totalCommits := 0
 	commits, _, err := client.Repositories.ListContributorsStats(ctx, repoOwner, repoName)
 	if err != nil {
 		totalCommits = -1
