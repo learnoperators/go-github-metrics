@@ -2,7 +2,6 @@ package sdkstats
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/google/go-github/github"
 )
@@ -32,20 +31,24 @@ type VersionParser interface {
 	ParseVersion(codeResults github.CodeResult) (string, error)
 }
 
+type Client struct {
+	Client *github.Client
+}
+
 // GetStats returns List of Repositories satisfyng the Search criteria,
 // populated with Stars, TotalCommits, Initial and Last Commit details.
 // Also included are basic details of repository such as URL, Owner, and name.
 
-func GetStats(ctx context.Context, tc *http.Client, rq RepoMetadataQuery) ([]RepoMetadata, error) {
+func (c Client) GetStats(ctx context.Context, rq RepoMetadataQuery) ([]RepoMetadata, error) {
 	var repoList []RepoMetadata
 	for _, q := range rq.Queries {
-		searchOp, err := search(ctx, tc, q)
+		searchOp, err := c.search(ctx, q)
 		if err != nil {
 			return nil, err
 		}
 		for _, j := range searchOp {
 			for _, i := range j.CodeResults {
-				repoDetails, err := getRepoDetails(ctx, tc, i, rq)
+				repoDetails, err := c.getRepoDetails(ctx, i, rq)
 				if _, ok := err.(*github.AcceptedError); ok {
 					continue
 				} else if err != nil {
@@ -59,9 +62,8 @@ func GetStats(ctx context.Context, tc *http.Client, rq RepoMetadataQuery) ([]Rep
 }
 
 // search returns Github API results for Code Search, for a given Query string
-func search(ctx context.Context, tc *http.Client, q string) ([]*github.CodeSearchResult, error) {
+func (c Client) search(ctx context.Context, q string) ([]*github.CodeSearchResult, error) {
 	var searchop []*github.CodeSearchResult
-	client := github.NewClient(tc)
 
 	opts := &github.SearchOptions{TextMatch: true,
 		ListOptions: github.ListOptions{
@@ -70,7 +72,7 @@ func search(ctx context.Context, tc *http.Client, q string) ([]*github.CodeSearc
 	}
 	//Below Logic enables to collate Search results from all pages returned from API call.
 	for {
-		op, resp, err := client.Search.Code(ctx, q, opts)
+		op, resp, err := c.Client.Search.Code(ctx, q, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -84,8 +86,7 @@ func search(ctx context.Context, tc *http.Client, q string) ([]*github.CodeSearc
 }
 
 // getRepoDetails Returns []RepoMetaData with Stars,CreatedAt,PushedAt, and TotalCommits details for a given owner, and repo.
-func getRepoDetails(ctx context.Context, tc *http.Client, codeResults github.CodeResult, rq RepoMetadataQuery) (*RepoMetadata, error) {
-	client := github.NewClient(tc)
+func (c Client) getRepoDetails(ctx context.Context, codeResults github.CodeResult, rq RepoMetadataQuery) (*RepoMetadata, error) {
 
 	repoOwner := codeResults.GetRepository().GetOwner().GetLogin()
 	repoName := codeResults.GetRepository().GetName()
@@ -95,13 +96,13 @@ func getRepoDetails(ctx context.Context, tc *http.Client, codeResults github.Cod
 		version = "N/A"
 	}
 
-	repo, _, err := client.Repositories.Get(ctx, repoOwner, repoName)
+	repo, _, err := c.Client.Repositories.Get(ctx, repoOwner, repoName)
 	if err != nil {
 		return nil, err
 	}
 
 	totalCommits := 0
-	commits, _, err := client.Repositories.ListContributorsStats(ctx, repoOwner, repoName)
+	commits, _, err := c.Client.Repositories.ListContributorsStats(ctx, repoOwner, repoName)
 	if err != nil {
 		totalCommits = -1
 	}

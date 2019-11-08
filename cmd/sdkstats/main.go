@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/go-github-metrics/pkg/sdkstats"
+	//"github.com/learnoperators/go-github-metrics/pkg/sdkstats"
+
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
 )
@@ -36,10 +39,10 @@ func main() {
 		&oauth2.Token{AccessToken: token},
 	)
 	tc := oauth2.NewClient(ctx, ts)
-	//client := github.NewClient(tc)
+	client := sdkstats.Client{Client: github.NewClient(tc)}
 
 	queries := []sdkstats.RepoMetadataQuery{
-		/*sdkstats.RepoMetadataQuery{
+		sdkstats.RepoMetadataQuery{
 			ProjectType: "helm",
 			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/helm-operator"},
 			VersionParser: &baseVersionParser{
@@ -63,7 +66,7 @@ func main() {
 			VersionParser: &gomodVersionParser{
 				searchQ: "replace github.com/operator-framework/operator-sdk => github.com/operator-framework/operator-sdk v",
 			},
-		},*/
+		},
 		sdkstats.RepoMetadataQuery{
 			ProjectType:   "gopkg.toml",
 			Queries:       []string{"filename:Gopkg.toml github.com/operator-framework/operator-sdk"},
@@ -74,7 +77,8 @@ func main() {
 	collectStats := [][]sdkstats.RepoMetadata{}
 
 	for _, r := range queries {
-		stats, err := sdkstats.GetStats(ctx, tc, r)
+		stats, err := client.GetStats(ctx, r)
+
 		fmt.Println("Total count for ", r.ProjectType, ":", len(stats))
 		if err != nil {
 			fmt.Printf("Failed to get stats for queries %v: %v\n", r.Queries, err)
@@ -82,8 +86,13 @@ func main() {
 		collectStats = append(collectStats, stats)
 	}
 	fileName := "Search_Results.json"
-	file, _ := json.MarshalIndent(collectStats, "", " ")
-	_ = ioutil.WriteFile(fileName, file, 0644)
+	file, err := json.MarshalIndent(collectStats, "", " ")
+	err = ioutil.WriteFile(fileName, file, 0644)
+	if err != nil {
+		fmt.Printf("Error encountered while writing results to file %v\n", err)
+		fmt.Println(collectStats)
+		os.Exit(1)
+	}
 	fmt.Println("Results are written in Search_Results.json")
 }
 
