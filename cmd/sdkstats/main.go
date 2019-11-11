@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/go-github-metrics/pkg/sdkstats"
@@ -46,19 +47,19 @@ func main() {
 			ProjectType: "helm",
 			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/helm-operator"},
 			VersionParser: &baseVersionParser{
-				searchQ:      "quay.io/operator-framework/helm-operator:v",
-				searchLatest: "quay.io/operator-framework/helm-operator:latest",
+				searchQ: "quay.io/operator-framework/helm-operator",
+				//searchLatest: "quay.io/operator-framework/helm-operator",
 			},
 		},
 		sdkstats.RepoMetadataQuery{
 			ProjectType: "ansible",
 			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/ansible-operator"},
 			VersionParser: &baseVersionParser{
-				searchQ:      "quay.io/operator-framework/ansible-operator:v",
-				searchLatest: "quay.io/operator-framework/ansible-operator:master",
+				searchQ: "quay.io/operator-framework/ansible-operator",
+				//searchLatest: "quay.io/operator-framework/ansible-operator:master",
 			},
 		},
-		sdkstats.RepoMetadataQuery{
+		/*sdkstats.RepoMetadataQuery{
 			ProjectType: "go.mod",
 			Queries: []string{
 				"filename:go.mod github.com/operator-framework/operator-sdk",
@@ -67,11 +68,11 @@ func main() {
 				searchQ: "replace github.com/operator-framework/operator-sdk => github.com/operator-framework/operator-sdk v",
 			},
 		},
-		sdkstats.RepoMetadataQuery{
+		/*sdkstats.RepoMetadataQuery{
 			ProjectType:   "gopkg.toml",
 			Queries:       []string{"filename:Gopkg.toml github.com/operator-framework/operator-sdk"},
 			VersionParser: &unknownVersionParser{},
-		},
+		},*/
 	}
 	// GetStats function for Query String from 'queries', These Strings are specific to Operator-SDK patterns.
 	collectStats := [][]sdkstats.RepoMetadata{}
@@ -98,6 +99,26 @@ func main() {
 
 // Parse the given Code result to search Text Matches for Version number.
 func (p baseVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
+	baseImageRegex := regexp.QuoteMeta(p.searchQ)
+	//versionRegex := []string{`(:([^s]+\n))?`, `(:([^s]))?`}
+	versionRegex := strings.Trim(`(:([^s]+\n))?`, "\n")
+	re := regexp.MustCompile(baseImageRegex + versionRegex)
+	for _, r := range codeResults.TextMatches {
+		matches := re.FindStringSubmatch(r.GetFragment())
+		if matches != nil {
+			if matches[1] == "" {
+				return "latest", nil
+			} else {
+				return strings.Trim(matches[2], "\n"), nil
+			}
+		}
+
+	}
+	return "unknown", nil
+}
+
+// Parse the given Code result to search Text Matches for Version number.
+/*func (p baseVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
 	var version string
 	var s, v []string
 
@@ -108,21 +129,24 @@ func (p baseVersionParser) ParseVersion(codeResults github.CodeResult) (string, 
 		stLoop:
 			for _, st := range s {
 				if strings.Contains(st, p.searchQ) {
-					v = strings.Split(st, ":v")
+					v = strings.Split(st, ":")
 					if len(v) == 0 {
-						version = "N/A"
+						version = "unknown"
+					} else if len(v) == 1 {
+						version = "latest"
 					} else {
 						version = v[1]
 					}
 					break stLoop
 				}
 			}
-		} else if strings.Contains(r.GetFragment(), p.searchLatest) {
-			version = "v0.11.0"
 		}
 	}
+	if version == "" {
+		version = "unknown"
+	}
 	return version, nil
-}
+}*/
 
 // Parse the given Code result to search Text Matches for Version number.
 func (p gomodVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
@@ -138,7 +162,7 @@ func (p gomodVersionParser) ParseVersion(codeResults github.CodeResult) (string,
 				if strings.Contains(st, p.searchQ) {
 					v = strings.Split(st, " v")
 					if len(v) == 0 {
-						version = "N/A"
+						version = "unknown"
 					} else {
 						version = v[1]
 					}
