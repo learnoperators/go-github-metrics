@@ -11,8 +11,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-github-metrics/pkg/sdkstats"
-	//"github.com/learnoperators/go-github-metrics/pkg/sdkstats"
+	"github.com/learnoperators/go-github-metrics/pkg/sdkstats"
 
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
@@ -48,7 +47,6 @@ func main() {
 			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/helm-operator"},
 			VersionParser: &baseVersionParser{
 				searchQ: "quay.io/operator-framework/helm-operator",
-				//searchLatest: "quay.io/operator-framework/helm-operator",
 			},
 		},
 		sdkstats.RepoMetadataQuery{
@@ -56,7 +54,6 @@ func main() {
 			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/ansible-operator"},
 			VersionParser: &baseVersionParser{
 				searchQ: "quay.io/operator-framework/ansible-operator",
-				//searchLatest: "quay.io/operator-framework/ansible-operator:master",
 			},
 		},
 		/*sdkstats.RepoMetadataQuery{
@@ -100,7 +97,6 @@ func main() {
 // Parse the given Code result to search Text Matches for Version number.
 func (p baseVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
 	baseImageRegex := regexp.QuoteMeta(p.searchQ)
-	//versionRegex := []string{`(:([^s]+\n))?`, `(:([^s]))?`}
 	versionRegex := strings.Trim(`(:([^s]+\n))?`, "\n")
 	re := regexp.MustCompile(baseImageRegex + versionRegex)
 	for _, r := range codeResults.TextMatches {
