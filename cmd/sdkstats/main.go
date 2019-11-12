@@ -42,7 +42,7 @@ func main() {
 	client := sdkstats.Client{Client: github.NewClient(tc)}
 
 	queries := []sdkstats.RepoMetadataQuery{
-		sdkstats.RepoMetadataQuery{
+		/*sdkstats.RepoMetadataQuery{
 			ProjectType: "helm",
 			Queries:     []string{"filename:Dockerfile quay.io/operator-framework/helm-operator"},
 			VersionParser: &baseVersionParser{
@@ -55,14 +55,15 @@ func main() {
 			VersionParser: &baseVersionParser{
 				searchQ: "quay.io/operator-framework/ansible-operator",
 			},
-		},
-		/*sdkstats.RepoMetadataQuery{
+		},*/
+		sdkstats.RepoMetadataQuery{
 			ProjectType: "go.mod",
 			Queries: []string{
 				"filename:go.mod github.com/operator-framework/operator-sdk",
 			},
 			VersionParser: &gomodVersionParser{
-				searchQ: "replace github.com/operator-framework/operator-sdk => github.com/operator-framework/operator-sdk v",
+				//searchQ: "replace github.com/operator-framework/operator-sdk => github.com/operator-framework/operator-sdk v",
+				searchQ: "github.com/operator-framework/operator-sdk",
 			},
 		},
 		/*sdkstats.RepoMetadataQuery{
@@ -72,7 +73,7 @@ func main() {
 		},*/
 	}
 	// GetStats function for Query String from 'queries', These Strings are specific to Operator-SDK patterns.
-	collectStats := [][]sdkstats.RepoMetadata{}
+	collectStats := []sdkstats.RepoMetadata{}
 
 	for _, r := range queries {
 		stats, err := client.GetStats(ctx, r)
@@ -81,7 +82,7 @@ func main() {
 		if err != nil {
 			fmt.Printf("Failed to get stats for queries %v: %v\n", r.Queries, err)
 		}
-		collectStats = append(collectStats, stats)
+		collectStats = append(collectStats, stats...)
 	}
 	fileName := "Search_Results.json"
 	file, err := json.MarshalIndent(collectStats, "", " ")
@@ -97,7 +98,7 @@ func main() {
 // Parse the given Code result to search Text Matches for Version number.
 func (p baseVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
 	baseImageRegex := regexp.QuoteMeta(p.searchQ)
-	versionRegex := strings.Trim(`(:([^s]+\n))?`, "\n")
+	versionRegex := `(:([^s]+))\n`
 	re := regexp.MustCompile(baseImageRegex + versionRegex)
 	for _, r := range codeResults.TextMatches {
 		matches := re.FindStringSubmatch(r.GetFragment())
@@ -108,7 +109,6 @@ func (p baseVersionParser) ParseVersion(codeResults github.CodeResult) (string, 
 				return strings.Trim(matches[2], "\n"), nil
 			}
 		}
-
 	}
 	return "unknown", nil
 }
@@ -142,7 +142,7 @@ func (p baseVersionParser) ParseVersion(codeResults github.CodeResult) (string, 
 		version = "unknown"
 	}
 	return version, nil
-}*/
+}
 
 // Parse the given Code result to search Text Matches for Version number.
 func (p gomodVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
@@ -168,6 +168,24 @@ func (p gomodVersionParser) ParseVersion(codeResults github.CodeResult) (string,
 		}
 	}
 	return version, nil
+}*/
+
+// Parse the given Code result to search Text Matches for Version number.
+func (p gomodVersionParser) ParseVersion(codeResults github.CodeResult) (string, error) {
+	baseImageRegex := regexp.QuoteMeta(p.searchQ)
+	versionRegex := `([\s]([^s]+)$)`
+	re := regexp.MustCompile(baseImageRegex + versionRegex)
+	for _, r := range codeResults.TextMatches {
+		matches := re.FindStringSubmatch(r.GetFragment())
+		if matches != nil {
+			if matches[1] == "" {
+				return "latest", nil
+			} else {
+				return strings.Trim(matches[2], "\n"), nil
+			}
+		}
+	}
+	return "unknown", nil
 }
 
 // Parse the given Code result to search Text Matches for Version number.
